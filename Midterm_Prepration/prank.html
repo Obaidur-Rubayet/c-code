@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DARK HUB • ULTRA BREACH</title>
+<style>
+  :root{
+    --green:#00ff66;
+    --red:#ff2b2b;
+    --mono: "Courier New", Courier, monospace;
+  }
+  html,body{height:100%;margin:0;background:#000;color:var(--green);font-family:var(--mono);-webkit-font-smoothing:antialiased;}
+  /* container */
+  #console{height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:16px;box-sizing:border-box;overflow:hidden;}
+  #output{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden;padding-bottom:6px;font-size:clamp(12px,2.6vw,18px);}
+  .line{white-space:pre-line;line-height:1.25;}
+  .ai{color:var(--red);text-shadow:0 0 8px rgba(255,0,0,0.25);}
+  .glitch{animation:glitch 0.32s infinite;color:var(--red);}
+  @keyframes glitch{
+     0%{text-shadow:2px 0 var(--red);}25%{text-shadow:-2px -2px #ff00ff;}50%{text-shadow:2px 2px cyan;}75%{text-shadow:-2px 0 yellow;}100%{text-shadow:2px -2px lime;}
+  }
+
+  /* UI controls */
+  #controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  input,button,select{background:#000;color:var(--green);border:1px solid var(--green);padding:8px 10px;font-family:var(--mono);font-size:14px}
+  button{cursor:pointer}
+  /* matrix canvas behind */
+  #matrix{position:fixed;inset:0;z-index:0}
+  /* overlay noise / distortion */
+  #noise{position:fixed;inset:0;pointer-events:none;mix-blend-mode:overlay;opacity:0.12;z-index:2}
+  /* red takeover */
+  #redScreen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(255,0,0,0.92),rgba(120,0,0,0.95));color:#000;font-size:clamp(24px,6vw,56px);z-index:9999;font-weight:700}
+  /* heart glitch reveal */
+  .heart-wrap{display:flex;align-items:center;gap:12px;margin-top:12px}
+  .heart{
+    width:120px;height:120px;display:flex;align-items:center;justify-content:center;font-size:48px;
+    filter:drop-shadow(0 0 10px rgba(255,0,80,0.5));
+  }
+  .heart.gh{
+    animation:heart-glitch 1.6s infinite;
+    transform-origin:center;
+  }
+  @keyframes heart-glitch{
+    0%{transform:translateY(0) scale(1) rotate(0deg);opacity:1}
+    20%{transform:translateY(-4px) scale(1.05) rotate(-2deg)}
+    40%{transform:translateY(3px) scale(0.98) rotate(3deg)}
+    60%{transform:translateY(-2px) scale(1.02) rotate(-1deg)}
+    80%{transform:translateY(2px) scale(0.99) rotate(1deg)}
+    100%{transform:translateY(0) scale(1) rotate(0deg)}
+  }
+
+  /* responsive adjustments */
+  @media (max-width:600px){
+    #output{font-size:14px;padding-bottom:12px}
+    .heart{width:88px;height:88px;font-size:34px}
+  }
+</style>
+</head>
+<body>
+<canvas id="matrix"></canvas>
+<canvas id="noise"></canvas>
+
+<div id="redScreen">!!! SYSTEM BREACH !!!</div>
+
+<div id="console" style="position:relative;z-index:3;">
+  <div id="output"></div>
+
+  <div id="controls" style="z-index:4;">
+    <div id="passwordBox" style="display:none;">
+      <input id="passwordInput" placeholder="ENTER CODE" aria-label="password">
+      <button id="pwdBtn">VERIFY</button>
+    </div>
+
+    <div id="chatBox" style="display:none;">
+      <input id="chatInput" placeholder="Type message" aria-label="chat">
+      <button id="chatBtn">SEND</button>
+    </div>
+
+    <div style="margin-left:auto">
+      <select id="modeSelect" title="Mode">
+        <option value="hacker">Hacker Ultra</option>
+        <option value="silent">Silent (no sounds)</option>
+      </select>
+      <button id="resetBtn">RESTART</button>
+    </div>
+  </div>
+
+  <!-- heart reveal area -->
+  <div id="revealArea" style="margin-top:12px;display:flex;align-items:center;gap:10px"></div>
+</div>
+
+<!-- Sounds (CDN) -->
+<audio id="beep" preload="auto" src="https://www.soundjay.com/buttons/sounds/beep-07.mp3"></audio>
+<audio id="alarm" preload="auto" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3"></audio>
+<audio id="bomb" preload="auto" src="https://www.soundjay.com/explosion/sounds/explosion-01.mp3"></audio>
+
+<script>
+/* ---------------------------
+   Utilities & small helpers
+   --------------------------- */
+const $ = sel => document.querySelector(sel);
+const output = $('#output');
+const pwdBox = $('#passwordBox');
+const chatBox = $('#chatBox');
+const revealArea = $('#revealArea');
+const beep = $('#beep'), alarm = $('#alarm'), bomb = $('#bomb');
+const modeSelect = $('#modeSelect');
+
+/* read crush name from URL param if present */
+function getCrushNameFromURL(){
+  const params = new URLSearchParams(location.search);
+  let name = params.get('crush');
+  if(!name) return null;
+  try { return decodeURIComponent(name); } catch(e){ return name; }
+}
+
+/* safe play sound depending on mode */
+function playSound(s){ if(modeSelect.value==='silent') return; try{ s.currentTime=0; s.play(); }catch(e){} }
+
+/* screen shake */
+function screenShake(intensity=12,dur=80){
+  const x = (Math.random()*intensity*2)-intensity;
+  const y = (Math.random()*intensity*2)-intensity;
+  document.body.style.transform = `translate(${x}px,${y}px)`;
+  setTimeout(()=>document.body.style.transform='translate(0,0)', dur);
+}
+
+/* typewriter effect */
+function typeText(text, className, cb, speed=36){
+  const line = document.createElement('div');
+  line.className = 'line' + (className ? ' ' + className : '');
+  output.appendChild(line);
+  let i = 0;
+  const id = setInterval(()=>{
+    line.textContent += text.charAt(i++);
+    // auto-scroll last lines into view
+    output.scrollTop = output.scrollHeight;
+    if(i>=text.length){ clearInterval(id); if(cb) setTimeout(cb, 220); }
+  }, speed);
+}
+
+/* keep output trimmed */
+function trimOutput(maxLines=18){
+  while(output.children.length > maxLines) output.removeChild(output.firstChild);
+}
+
+/* ---------------------------
+   Matrix rain background
+   --------------------------- */
+const canvas = $('#matrix');
+const ctx = canvas.getContext('2d');
+function setupMatrix(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+  const letters = '01<>|/#@$%&{}[]ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const fontSize = Math.max(10, Math.floor(Math.min(innerWidth, innerHeight)/70));
+  const cols = Math.floor(canvas.width / fontSize);
+  const drops = new Array(cols).fill(1);
+
+  function draw(){
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#0F0';
+    ctx.font = `${fontSize}px monospace`;
+
+    for(let i=0;i<drops.length;i++){
+      const text = letters.charAt(Math.floor(Math.random()*letters.length));
+      const x = i * fontSize;
+      const y = drops[i] * fontSize;
+      ctx.fillText(text, x, y);
+      if(y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    }
+  }
+  return setInterval(draw, 45);
+}
+let matrixInterval = setupMatrix();
+addEventListener('resize', ()=>{ clearInterval(matrixInterval); matrixInterval = setupMatrix(); });
+
+/* ---------------------------
+   Noise / distortion overlay (animated perlin-like)
+   --------------------------- */
+const noiseCanvas = $('#noise');
+const nctx = noiseCanvas.getContext('2d');
+function setupNoise(){
+  noiseCanvas.width = innerWidth;
+  noiseCanvas.height = innerHeight;
+  let t = 0;
+  function draw(){
+    const w = noiseCanvas.width, h = noiseCanvas.height;
+    nctx.clearRect(0,0,w,h);
+    const img = nctx.createImageData(w, h);
+    for(let i=0;i<w*h;i++){
+      // simple animated grain
+      const v = Math.floor(200 + 55 * Math.sin((i+t*0.02)%100) * (Math.random()*0.8));
+      img.data[i*4+0] = v;
+      img.data[i*4+1] = v;
+      img.data[i*4+2] = v;
+      img.data[i*4+3] = Math.floor(8 + 24*Math.random());
+    }
+    nctx.putImageData(img,0,0);
+    t += 1;
+  }
+  return setInterval(draw, 120);
+}
+let noiseInterval = setupNoise();
+addEventListener('resize', ()=>{ clearInterval(noiseInterval); noiseInterval = setupNoise(); });
+
+/* ---------------------------
+   Main UX Flow
+   --------------------------- */
+let crushName = getCrushNameFromURL(); // may be null
+
+function startSequence(){
+  output.innerHTML = ''; revealArea.innerHTML = '';
+  trimOutput();
+  typeText('>>> INIT DARK HUB ULTRA...', null, ()=>{
+    typeText('>>> MATRIX ONLINE', 'glitch', ()=>{
+      typeText('>>> THREAT LEVEL: ELEVATED', 'ai glitch', ()=>{
+        const btn = document.createElement('button');
+        btn.textContent = 'OVERRIDE SECURITY';
+        btn.onclick = ()=>activate();
+        output.appendChild(btn);
+      });
+    });
+  });
+}
+
+function activate(){
+  output.innerHTML='';
+  typeText('>>> AUTH REQUIRED', 'ai', ()=>{
+    // show password box
+    pwdBox.style.display = 'inline-block';
+  });
+}
+
+$('#pwdBtn').addEventListener('click', ()=>checkPassword());
+$('#passwordInput').addEventListener('keydown', e=>{ if(e.key==='Enter') checkPassword(); });
+
+function checkPassword(){
+  const val = $('#passwordInput').value.trim();
+  if(val !== 'V4'){ // correct code V4 (change if you want)
+    typeText('>>> ACCESS DENIED — Intrusion logged.', 'glitch', ()=>{
+      playSound(beep);
+      screenShake(16,120);
+      trimOutput();
+    });
+    return;
+  }
+  // correct
+  pwdBox.style.display = 'none';
+  playSound(alarm);
+  fakeBreachSequence();
+}
+
+/* Fake breach -> red takeover -> reveal crush */
+function fakeBreachSequence(){
+  const red = $('#redScreen');
+  red.style.display='flex';
+  playSound(bomb);
+  // intense flicker + shake
+  let cycles = 0;
+  const int = setInterval(()=>{
+    screenShake(22,90);
+    cycles++;
+    if(cycles>10){ clearInterval(int); red.style.display='none'; afterBreach(); }
+  },110);
+}
+
+function afterBreach(){
+  typeText('>>> CORE ACCESS GRANTED', 'ai glitch', ()=>{
+    typeText('>>> ESTABLISHING SECURE CHANNEL...', 'glitch', ()=>{
+      setTimeout(()=>revealCrushAuto(), 700);
+    });
+  });
+}
+
+/* auto-detect / reveal crush name
+   - if crushName from URL => reveal it
+   - else do faux-scan and reveal "SOMEONE SPECIAL" (or allow later personalization)
+*/
+function revealCrushAuto(){
+  trimOutput(20);
+  typeText('>>> SCANNING LOCAL CONTACTS...', null, ()=>{
+    typeText('>>> ANALYZING HEART PATTERNS...', null, ()=>{
+      // small suspense
+      setTimeout(()=>{
+        const reveal = crushName ? crushName : 'SOMEONE SPECIAL';
+        typeText('>>> MATCH FOUND: ' + reveal, 'ai glitch', ()=>{
+          showHeartReveal(reveal);
+          // open chat after small delay
+          setTimeout(()=>{ chatBox.style.display='inline-block'; }, 800);
+        });
+      }, 900);
+    });
+  });
+}
+
+/* heart-glitch animation + personalized note */
+function showHeartReveal(name){
+  revealArea.innerHTML = '';
+  const wrap = document.createElement('div'); wrap.className = 'heart-wrap';
+  const heart = document.createElement('div'); heart.className='heart gh';
+  heart.innerHTML = '❤️';
+  const text = document.createElement('div');
+  text.className='line';
+  text.style.color = 'white';
+  text.style.textShadow = '0 0 12px rgba(255,0,80,0.6)';
+  text.innerHTML = `FOR: ${name}\n\nI SEE YOU. — DARK HUB`;
+
+  wrap.appendChild(heart);
+  wrap.appendChild(text);
+  revealArea.appendChild(wrap);
+
+  // small extra glitch pulse
+  let p=0;
+  const puls = setInterval(()=>{ heart.style.transform = `scale(${1 + 0.03*Math.sin(p)})`; p+=0.6; if(p>40) { clearInterval(puls); heart.style.transform=''; } },40);
+}
+
+/* Chat interactions (auto-typing AI conversation mode) */
+$('#chatBtn').addEventListener('click', sendChat);
+$('#chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+function sendChat(){
+  const msg = $('#chatInput').value.trim();
+  if(!msg) return;
+  typeText('You: ' + msg);
+  $('#chatInput').value = '';
+  // AI auto-reply sequence
+  setTimeout(()=>{ typeText('>>> ANALYZING EMOTIONS...', 'glitch'); }, 450);
+  setTimeout(()=>{ typeText('>>> MESSAGE FOR ' + (crushName || 'SOMEONE') + ': \"You\'re on my mind.\"', 'ai'); }, 1100);
+  setTimeout(()=>{ typeText('>>> CONVERSATION END — Dark Hub disengaging.', 'glitch', ()=>{ chatBox.style.display='none'; }); }, 1900);
+}
+
+/* restart */
+$('#resetBtn').addEventListener('click', ()=>{
+  // reset UI and state
+  $('#passwordInput').value=''; $('#chatInput').value='';
+  pwdBox.style.display='none'; chatBox.style.display='none';
+  revealArea.innerHTML=''; output.innerHTML='';
+  crushName = getCrushNameFromURL(); startSequence();
+});
+
+/* init */
+startSequence();
+
+/* optional: keyboard shortcut 'R' to reveal name instantly for demo */
+addEventListener('keydown', e=>{
+  if(e.key.toLowerCase()==='r'){ revealCrushAuto(); }
+});
+</script>
+</body>
+</html>
